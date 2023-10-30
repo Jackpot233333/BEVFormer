@@ -93,7 +93,7 @@ class DetectionTransformerDecoder(TransformerLayerSequence):
         for lid, layer in enumerate(self.layers):
 
             reference_points_input = reference_points[..., :2].unsqueeze(
-                2)  # BS NUM_QUERY NUM_LEVEL 2
+                2).sigmoid()  # BS NUM_QUERY NUM_LEVEL 2
             output = layer(
                 output,
                 *args,
@@ -107,13 +107,11 @@ class DetectionTransformerDecoder(TransformerLayerSequence):
 
                 assert reference_points.shape[-1] == 3
 
-                new_reference_points = torch.zeros_like(reference_points)
-                new_reference_points[..., :2] = tmp[
-                    ..., :2] + inverse_sigmoid(reference_points[..., :2])
-                new_reference_points[..., 2:3] = tmp[
-                    ..., 4:5] + inverse_sigmoid(reference_points[..., 2:3])
+                pre = tmp[..., :2] + reference_points[..., :2]
+                post = tmp[..., 4:5] + reference_points[..., 2:3]
+                new_reference_points = torch.cat([pre, post], dim=-1)
 
-                new_reference_points = new_reference_points.sigmoid()
+                # new_reference_points = new_reference_points.sigmoid()
 
                 reference_points = new_reference_points.detach()
 

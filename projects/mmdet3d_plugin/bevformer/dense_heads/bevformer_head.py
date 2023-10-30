@@ -172,35 +172,54 @@ class BEVFormerHead(DETRHead):
         hs = hs.permute(0, 2, 1, 3)
         outputs_classes = []
         outputs_coords = []
+        outputs_references = []
         for lvl in range(hs.shape[0]):
             if lvl == 0:
                 reference = init_reference
             else:
                 reference = inter_references[lvl - 1]
-            reference = inverse_sigmoid(reference)
+            # reference = inverse_sigmoid(reference)
             outputs_class = self.cls_branches[lvl](hs[lvl])
             tmp = self.reg_branches[lvl](hs[lvl])
 
             # TODO: check the shape of reference
             assert reference.shape[-1] == 3
-            tmp[..., 0:2] += reference[..., 0:2]
-            tmp[..., 0:2] = tmp[..., 0:2].sigmoid()
-            tmp[..., 4:5] += reference[..., 2:3]
-            tmp[..., 4:5] = tmp[..., 4:5].sigmoid()
-            tmp[..., 0:1] = (tmp[..., 0:1] * (self.pc_range[3] -
-                             self.pc_range[0]) + self.pc_range[0])
-            tmp[..., 1:2] = (tmp[..., 1:2] * (self.pc_range[4] -
-                             self.pc_range[1]) + self.pc_range[1])
-            tmp[..., 4:5] = (tmp[..., 4:5] * (self.pc_range[5] -
-                             self.pc_range[2]) + self.pc_range[2])
+            # tmp[..., 0:2] += reference[..., 0:2]
+            # tmp[..., 0:2] = tmp[..., 0:2].sigmoid()
+            # tmp[..., 4:5] += reference[..., 2:3]
+            # tmp[..., 4:5] = tmp[..., 4:5].sigmoid()
+            # tmp[..., 0:1] = (tmp[..., 0:1] * (self.pc_range[3] -
+            #                  self.pc_range[0]) + self.pc_range[0])
+            # tmp[..., 1:2] = (tmp[..., 1:2] * (self.pc_range[4] -
+            #                  self.pc_range[1]) + self.pc_range[1])
+            # tmp[..., 4:5] = (tmp[..., 4:5] * (self.pc_range[5] -
+            #                  self.pc_range[2]) + self.pc_range[2])
 
             # TODO: check if using sigmoid
             outputs_coord = tmp
             outputs_classes.append(outputs_class)
             outputs_coords.append(outputs_coord)
+            outputs_references.append(reference)
 
         outputs_classes = torch.stack(outputs_classes)
         outputs_coords = torch.stack(outputs_coords)
+        outputs_references = torch.stack(outputs_references)
+
+        assert outputs_references.shape[-1] == 3
+        tmp = outputs_coords
+        tmp02 = tmp[..., 0:2]
+        tmp02 = tmp02 + outputs_references[..., 0:2]
+        tmp02 = tmp02.sigmoid()
+        tmp01 = tmp02[..., 0:1]
+        tmp01 = tmp01 * (self.pc_range[3] - self.pc_range[0]) + self.pc_range[0]
+        tmp12 = tmp02[..., 1:2]
+        tmp12 = tmp12 * (self.pc_range[4] - self.pc_range[1]) + self.pc_range[1]
+        tmp45 = tmp[..., 4:5]
+        tmp45 = tmp45 + outputs_references[..., 2:3]
+        tmp45 = tmp45.sigmoid()
+        tmp45 = tmp45 * (self.pc_range[5] - self.pc_range[2]) + self.pc_range[2]
+        tmp = torch.cat([tmp01, tmp12, tmp[..., 2:4], tmp45, tmp[..., 5:]], dim=-1)
+        outputs_coords = tmp
 
         outs = {
             'bev_embed': bev_embed,
