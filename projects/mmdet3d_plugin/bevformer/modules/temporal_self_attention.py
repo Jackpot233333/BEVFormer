@@ -5,7 +5,7 @@
 # ---------------------------------------------
 
 from projects.mmdet3d_plugin.models.utils.bricks import run_time
-from .multi_scale_deformable_attn_function import MultiScaleDeformableAttnFunction_fp32
+from .multi_scale_deformable_attn_function import MultiScaleDeformableAttnFunction_fp32, MultiScaleDeformableAttnFunction_pytorch
 from mmcv.ops.multi_scale_deform_attn import multi_scale_deformable_attn_pytorch
 import warnings
 import torch
@@ -249,7 +249,7 @@ class TemporalSelfAttention(BaseModule):
                 attention_weights, self.im2col_step)
         else:
 
-            output = multi_scale_deformable_attn_pytorch(
+            output = MultiScaleDeformableAttnFunction_pytorch.apply(
                 value, spatial_shapes, sampling_locations, attention_weights)
 
         # output shape (bs*num_bev_queue, num_query, embed_dims)
