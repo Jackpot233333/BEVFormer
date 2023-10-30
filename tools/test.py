@@ -19,7 +19,7 @@ from mmdet3d.datasets import build_dataset
 from projects.mmdet3d_plugin.datasets.builder import build_dataloader
 from mmdet3d.models import build_model
 from mmdet.apis import set_random_seed
-from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test
+from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test, export_onnx
 from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
@@ -29,7 +29,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='MMDet test (and eval) a model')
     parser.add_argument('config', help='test config file path')
-    parser.add_argument('checkpoint', help='checkpoint file')
+    parser.add_argument('output_file', help='test config file path')
+    parser.add_argument('--checkpoint', help='checkpoint file', default='./ckpts/r101_dcn_fcos3d_pretrain.pth')
     parser.add_argument('--out', help='output result file in pickle format')
     parser.add_argument(
         '--fuse-conv-bn',
@@ -46,6 +47,7 @@ def parse_args():
         '--eval',
         type=str,
         nargs='+',
+        default='bbox',
         help='evaluation metrics, which depends on the dataset, e.g., "bbox",'
         ' "segm", "proposal" for COCO, and "mAP", "recall" for PASCAL VOC')
     parser.add_argument('--show', action='store_true', help='show results')
@@ -90,7 +92,7 @@ def parse_args():
     parser.add_argument(
         '--launcher',
         choices=['none', 'pytorch', 'slurm', 'mpi'],
-        default='none',
+        default='pytorch',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
@@ -186,7 +188,7 @@ def main():
         distributed = False
     else:
         distributed = True
-        init_dist(args.launcher, **cfg.dist_params)
+        # init_dist(args.launcher, **cfg.dist_params)
 
     # set random seeds
     if args.seed is not None:
@@ -230,12 +232,13 @@ def main():
         # model = MMDataParallel(model, device_ids=[0])
         # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
     else:
-        model = MMDistributedDataParallel(
-            model.cuda(),
-            device_ids=[torch.cuda.current_device()],
-            broadcast_buffers=False)
-        outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
-                                        args.gpu_collect)
+        # model = MMDistributedDataParallel(
+        #     model.cuda(),
+        #     device_ids=[torch.cuda.current_device()],
+        #     broadcast_buffers=False)
+        # outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
+        #                                 args.gpu_collect)
+        export_onnx(model, data_loader, args.output_file)
 
     rank, _ = get_dist_info()
     if rank == 0:

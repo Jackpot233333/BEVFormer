@@ -113,6 +113,50 @@ def custom_multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
     return {'bbox_results': bbox_results, 'mask_results': mask_results}
 
 
+from torch.onnx import register_custom_op_symbolic
+from torch.onnx.symbolic_helper import parse_args
+
+
+@parse_args('v','v','i','i','b')
+def grid_sampler(g, input, grid, mode_enum, padding_mode_enum, align_corners):
+    mode_str = ['bilinear', 'nearest', 'bicubic'][mode_enum]
+    padding_str = ['zeros', 'border', 'reflection'][padding_mode_enum]
+    return g.op('com.microsoft::GridSample',input,grid,mode_s=mode_str,padding_mode_s=padding_str,align_corners_i=align_corners)
+
+
+def export_onnx(model, data_loader, output_file):
+    register_custom_op_symbolic("::grid_sampler", grid_sampler, 13)
+    model.eval()
+
+    for data in data_loader:
+        
+        with torch.no_grad():
+            inputs = {}
+            inputs['img'] = data['img'][0].data[0].float().unsqueeze(0) #torch.randn(6,3,736,1280)#.cuda()
+            #inputs['return_loss'] = False
+            inputs['img_metas'] = [1]
+            inputs['img_metas'][0] = [1]
+            inputs['img_metas'][0][0] = {}
+            inputs['img_metas'][0][0]['can_bus'] = torch.from_numpy(data['img_metas'][0].data[0][0]['can_bus']).float()#torch.randn(18)#.cuda()
+            inputs['img_metas'][0][0]['lidar2img'] = torch.from_numpy(np.array(data['img_metas'][0].data[0][0]['lidar2img'])).float().unsqueeze(0)#torch.randn(1,6,4,4)#.cuda()
+            inputs['img_metas'][0][0]['scene_token'] = 'fcbccedd61424f1b85dcbf8f897f9754'
+            inputs['img_metas'][0][0]['img_shape'] = torch.Tensor([[480,800]])
+            inputs['pre_bev'] = torch.randn((1, 2500, 256))
+
+            torch.onnx.export(
+                model,
+                inputs,
+                output_file,
+                export_params=True,
+                do_constant_folding=False,
+                verbose=False,
+                opset_version=13,
+            )
+ 
+            print(f"ONNX file has been saved in {output_file}")
+            exit()
+
+
 def collect_results_cpu(result_part, size, tmpdir=None):
     rank, world_size = get_dist_info()
     # create a tmp dir if it is not specified

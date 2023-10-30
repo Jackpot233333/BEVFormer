@@ -157,9 +157,9 @@ class PerceptionTransformer(BaseModule):
 
         # add can bus signals
         can_bus = bev_queries.new_tensor(
-            [each['can_bus'] for each in kwargs['img_metas']])  # [:, :]
+            [each['can_bus'].cpu().numpy() for each in kwargs['img_metas']])  # [:, :]
         can_bus = self.can_bus_mlp(can_bus)[None, :, :]
-        bev_queries = bev_queries + can_bus * self.use_can_bus
+        bev_queries = bev_queries + can_bus * float(self.use_can_bus)
 
         feat_flatten = []
         spatial_shapes = []

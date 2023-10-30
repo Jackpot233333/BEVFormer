@@ -59,12 +59,15 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         # reference points in 3D space, used in spatial cross-attention (SCA)
         if dim == '3d':
-            zs = torch.linspace(0.5, Z - 0.5, num_points_in_pillar, dtype=dtype,
-                                device=device).view(-1, 1, 1).expand(num_points_in_pillar, H, W) / Z
-            xs = torch.linspace(0.5, W - 0.5, W, dtype=dtype,
-                                device=device).view(1, 1, W).expand(num_points_in_pillar, H, W) / W
-            ys = torch.linspace(0.5, H - 0.5, H, dtype=dtype,
-                                device=device).view(1, H, 1).expand(num_points_in_pillar, H, W) / H
+            # zs = torch.linspace(0.5, Z - 0.5, num_points_in_pillar, dtype=dtype,
+            #                     device=device).view(-1, 1, 1).expand(num_points_in_pillar, H, W) / Z
+            # xs = torch.linspace(0.5, W - 0.5, W, dtype=dtype,
+            #                     device=device).view(1, 1, W).expand(num_points_in_pillar, H, W) / W
+            # ys = torch.linspace(0.5, H - 0.5, H, dtype=dtype,
+            #                     device=device).view(1, H, 1).expand(num_points_in_pillar, H, W) / H
+            zs = torch.cat((torch.arange(0.5,Z-0.5,(Z-1)/(num_points_in_pillar-1)), torch.Tensor([Z-0.5])),dim=0).view(-1, 1, 1).expand(num_points_in_pillar, H, W) / Z
+            xs = torch.cat((torch.arange(0.5, W-0.5, (W-1)/(W-1)), torch.Tensor([W-0.5])),dim=0).view(1, 1, W).expand(num_points_in_pillar, H, W) / W
+            ys = torch.cat((torch.arange(0.5, H-0.5, (H-1)/(H-1)), torch.Tensor([H-0.5])),dim=0).view(1, H, 1).expand(num_points_in_pillar, H, W) / H
             ref_3d = torch.stack((xs, ys, zs), -1)
             ref_3d = ref_3d.permute(0, 3, 1, 2).flatten(2).permute(0, 2, 1)
             ref_3d = ref_3d[None].repeat(bs, 1, 1, 1)
@@ -72,11 +75,15 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         # reference points on 2D bev plane, used in temporal self-attention (TSA).
         elif dim == '2d':
+            # ref_y, ref_x = torch.meshgrid(
+            #     torch.linspace(
+            #         0.5, H - 0.5, H, dtype=dtype, device=device),
+            #     torch.linspace(
+            #         0.5, W - 0.5, W, dtype=dtype, device=device)
+            # )
             ref_y, ref_x = torch.meshgrid(
-                torch.linspace(
-                    0.5, H - 0.5, H, dtype=dtype, device=device),
-                torch.linspace(
-                    0.5, W - 0.5, W, dtype=dtype, device=device)
+                torch.cat((torch.arange(0.5, H-0.5, (H-1)/(H-1)), torch.Tensor([H-0.5])),dim=0),
+                torch.cat((torch.arange(0.5, W-0.5, (W-1)/(W-1)), torch.Tensor([W-0.5])),dim=0)
             )
             ref_y = ref_y.reshape(-1)[None] / H
             ref_x = ref_x.reshape(-1)[None] / W
@@ -92,11 +99,13 @@ class BEVFormerEncoder(TransformerLayerSequence):
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
 
-        lidar2img = []
-        for img_meta in img_metas:
-            lidar2img.append(img_meta['lidar2img'])
-        lidar2img = np.asarray(lidar2img)
-        lidar2img = reference_points.new_tensor(lidar2img)  # (B, N, 4, 4)
+        # lidar2img = []
+        # for img_meta in img_metas:
+        #     lidar2img.append(img_meta['lidar2img'])
+        # lidar2img = np.asarray(lidar2img)
+        # lidar2img = reference_points.new_tensor(lidar2img)  # (B, N, 4, 4)
+        import numpy as np
+        lidar2img = torch.tensor(np.ones((1, 6, 4, 4), dtype=np.float32))
         reference_points = reference_points.clone()
 
         reference_points[..., 0:1] = reference_points[..., 0:1] * \
@@ -124,21 +133,21 @@ class BEVFormerEncoder(TransformerLayerSequence):
         eps = 1e-5
 
         bev_mask = (reference_points_cam[..., 2:3] > eps)
-        reference_points_cam = reference_points_cam[..., 0:2] / torch.maximum(
+        reference_points_cam = reference_points_cam[..., 0:2] / torch.max(
             reference_points_cam[..., 2:3], torch.ones_like(reference_points_cam[..., 2:3]) * eps)
 
-        reference_points_cam[..., 0] /= img_metas[0]['img_shape'][0][1]
-        reference_points_cam[..., 1] /= img_metas[0]['img_shape'][0][0]
+        reference_points_cam[..., 0] /= torch.tensor(800, dtype=torch.float32)
+        reference_points_cam[..., 1] /= torch.tensor(480, dtype=torch.float32)
 
         bev_mask = (bev_mask & (reference_points_cam[..., 1:2] > 0.0)
                     & (reference_points_cam[..., 1:2] < 1.0)
                     & (reference_points_cam[..., 0:1] < 1.0)
                     & (reference_points_cam[..., 0:1] > 0.0))
-        if digit_version(TORCH_VERSION) >= digit_version('1.8'):
-            bev_mask = torch.nan_to_num(bev_mask)
-        else:
-            bev_mask = bev_mask.new_tensor(
-                np.nan_to_num(bev_mask.cpu().numpy()))
+        # if digit_version(TORCH_VERSION) >= digit_version('1.8'):
+        #     bev_mask = torch.nan_to_num(bev_mask)
+        # else:
+        #     bev_mask = bev_mask.new_tensor(
+        #         np.nan_to_num(bev_mask.cpu().numpy()))
 
         reference_points_cam = reference_points_cam.permute(2, 1, 3, 0, 4)
         bev_mask = bev_mask.permute(2, 1, 3, 0, 4).squeeze(-1)
