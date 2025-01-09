@@ -20,3 +20,22 @@
 
 # 第三步： [commit](https://github.com/Jackpot233333/BEVFormer/commit/c03c63fbab6ab75a4c809f42e5ea2b7a6bc1f038)
 将 MultiScaleDeformableAttn 包成一个自定义算子，这个算子在 Axera 工具链上是高效支持的
+
+---
+对 SpatialCrossAttention 中的动态 shape 的补充：
+
+在 SpatialCrossAttention 中 query 会先经过一个由 lidar2image 得出的 mask，将需要的点取出，来得到真正进入 deform attn 的 queries_rebatch
+
+通常来说 6v 各个相机朝向固定，在 bevfeature 中不可能占满，单目 query 经过 mask 后的实际 queries_rebatch 长度相比原始 query 长度会大大减小；根据几组 nuscenes 数据集数据简单统计，大约为 30% 左右。即 50*50 的 bev feature，query 长度为 2500，mask 后最大长度都在 600 以下； 100 * 100 的 bev feature，query 长度为 10000，mask 后长度都在 3000 以下
+
+这里 queries_rebatch 的长度是由 lidar2image 来决定的，所以当 lidar2image 是模型输入时，这里的 tensor shape 是动态的，整个模型是一个动态 shape 模型，动态 shape 模型我们是不支持的
+
+目前的改法是不把经过 mask 得到的点取出，而是在原始 query 上把本该被 mask 掉的点置 0，queries_rebatch 的长度就是原始 query 的长度
+
+如果能保证 lidar2image 是静态，将其作为常数而不是模型输入，queries_rebatch 的长度就可以认为是固定，从而使送入 deform attn 的长度为 mask 后而非原始 query 长度，减小计算量，节省模型运行时间
+
+具体改法是把之前为了静态 shape 而对 SpatialCrossAttention 做的修改全部撤销即可，同时在 encoder.point_sampling 中，将原本从外部输入来的 `lidar2img = img_metas[0]['lidar2img']` 改成具体值（比如写死或者从某处 load）
+
+注意！上述速度优化需要保证 lidar2img 静态，一旦 lidar2img 改变，需要重新编译重新部署。因此需要明确实际落地车上 lidar2img 是否为静态，且同一批车互相之间 lidar2img 是否有不同
+
+![image](https://github.com/user-attachments/assets/c7075b5c-7f12-46c4-8d33-2b9c0ba70bf1)
